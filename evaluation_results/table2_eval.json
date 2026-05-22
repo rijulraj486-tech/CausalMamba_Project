@@ -1,0 +1,17 @@
+{
+  "model_name": "Causal-Mamba",
+  "avg_rmse": 7.567736943562825,
+  "avg_rmse_m": 7.567736943562825,
+  "test_rmse_m": 7.567736943562825,
+  "per_trajectory": {
+    "2013-04-05": 6.603,
+    "2012-11-16": 6.574,
+    "2012-11-04": 9.526
+  },
+  "gain_pct": 5.521386472374214,
+  "beats_paper": true,
+  "paper_ref": "KalmanNet",
+  "paper_best": 8.01,
+  "gps_fusion_mode": "fixed",
+  "eval_gps_anchor_alpha": 0.03
+}

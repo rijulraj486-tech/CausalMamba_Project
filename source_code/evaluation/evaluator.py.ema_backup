@@ -1,0 +1,168 @@
+"""
+Table II-style evaluator.
+Runs on FULL trajectory length. GPS anchor active during evaluation.
+"""
+
+import torch
+import numpy as np
+import json
+import os
+
+PAPER_TABLE_II = {
+    'KalmanNet': {
+        (50, '2,4'): 8.01, (50, '2,8'): 9.00, (50, 'D,D'): 11.12,
+        (100, '2,4'): 8.62, (100, '2,8'): 9.20, (100, 'D,D'): float('nan'),
+        (200, '2,4'): 10.45, (200, '2,8'): 10.45, (200, 'D,D'): float('nan'),
+    },
+    'Split_KalmanNet': {
+        (50, '2,4'): 9.62, (50, '2,8'): 9.97, (50, 'D,D'): 17.91,
+        (100, '2,4'): 9.86, (100, '2,8'): 8.77, (100, 'D,D'): 9.96,
+        (200, '2,4'): 10.08, (200, '2,8'): 9.61, (200, 'D,D'): 10.05,
+    },
+}
+
+PAPER_BEST = {'KalmanNet': 8.01, 'Split_KalmanNet': 8.77}
+
+
+@torch.no_grad()
+def eval_single_trajectory(
+    model,
+    batch,
+    device,
+    trainer_cls,
+    mamba_context=32,
+    eval_gps_anchor_alpha=1.0,
+    gps_fusion_mode='fixed',
+):
+    """Run model on ONE full trajectory. Returns RMSE in metres."""
+    model.eval()
+    T = batch['wheel'].shape[1]
+    x_int = batch['x0'].to(device).clone()
+    errs = []
+    wheel_hist = []
+    gps_hist = []
+    imu_hist = []
+    gps_valid_hist = []
+    prev_gps_conf = None
+    gps_conf_ema_beta = 0.9
+
+    for t in range(T):
+        gps_xy = batch['gps'][:, t, :2].to(device)
+        gps_valid = batch['gps_valid'][:, t].to(device)
+
+        gps_dx = gps_xy[:, 0:1] - x_int[:, 0:1]
+        gps_dy = gps_xy[:, 1:2] - x_int[:, 1:2]
+        gps_feat = torch.cat(
+            [gps_dx, gps_dy, gps_valid.float().unsqueeze(-1)], dim=-1
+        )
+
+        wheel_hist.append(batch['wheel'][:, t].to(device))
+        gps_hist.append(gps_feat)
+        imu_hist.append(batch['imu'][:, t].to(device))
+        gps_valid_hist.append(gps_valid.float().unsqueeze(-1))
+
+        start = max(0, len(wheel_hist) - int(mamba_context))
+        if gps_fusion_mode == 'learned':
+            delta, _, gps_conf = model(
+                torch.stack(wheel_hist[start:], dim=1),
+                torch.stack(gps_hist[start:], dim=1),
+                torch.stack(imu_hist[start:], dim=1),
+                torch.stack(gps_valid_hist[start:], dim=1),
+                return_confidence=True,
+            )
+            if gps_conf is not None:
+                conf_scalar = gps_conf.mean().view(1, 1)
+
+                if prev_gps_conf is None:
+                    smooth_conf = conf_scalar
+                else:
+                    smooth_conf = (
+                        gps_conf_ema_beta * prev_gps_conf
+                        + (1.0 - gps_conf_ema_beta) * conf_scalar
+                    )
+
+                prev_gps_conf = smooth_conf.detach()
+                gps_conf = smooth_conf
+            anchor_alpha = gps_conf[:, -1]
+        else:
+            delta, _ = model(
+                torch.stack(wheel_hist[start:], dim=1),
+                torch.stack(gps_hist[start:], dim=1),
+                torch.stack(imu_hist[start:], dim=1),
+                torch.stack(gps_valid_hist[start:], dim=1),
+            )
+            anchor_alpha = eval_gps_anchor_alpha
+        delta = delta[:, -1]
+        x_int = x_int + delta
+        x_int = trainer_cls.gps_anchor(
+            x_int, gps_xy, gps_valid, alpha=anchor_alpha
+        )
+
+        gt_xy = batch['gt'][:, t, :2].to(device)
+        errs.append((x_int[:, :2] - gt_xy).norm(dim=-1))
+
+    return torch.stack(errs).mean().item()
+
+
+def evaluate_table2(model, test_loader, device, trainer_cls,
+                    model_name='CausalMamba', paper_ref='KalmanNet',
+                    out_json=None, mamba_context=32, metadata=None,
+                    eval_gps_anchor_alpha=1.0, gps_fusion_mode='fixed'):
+    model.eval()
+    traj_results = {}
+    all_rmse = []
+
+    for batch in test_loader:
+        traj_id = (batch['traj_id'][0]
+                   if isinstance(batch['traj_id'], (list, tuple))
+                   else batch['traj_id'])
+        rmse = eval_single_trajectory(
+            model, batch, device, trainer_cls, mamba_context=mamba_context,
+            eval_gps_anchor_alpha=eval_gps_anchor_alpha,
+            gps_fusion_mode=gps_fusion_mode,
+        )
+        traj_results[str(traj_id)] = round(rmse, 3)
+        all_rmse.append(rmse)
+
+    avg_rmse = float(np.mean(all_rmse))
+    paper_b = PAPER_BEST.get(paper_ref, 8.01)
+    gain_pct = (paper_b - avg_rmse) / paper_b * 100
+    beats = avg_rmse < paper_b
+
+    sep = '=' * 62
+    print(f"\n{sep}")
+    print(f"  {model_name} - Table II Evaluation")
+    print(f"  (vs {paper_ref} best: {paper_b:.3f} m)")
+    print(sep)
+    print(f"  {'Trajectory':<22} {'RMSE (m)':>10}")
+    print(f"  {'-'*32}")
+    for tid, rmse in traj_results.items():
+        flag = 'v' if rmse < paper_b else 'x'
+        print(f"  {flag} {str(tid):<20} {rmse:>10.3f}")
+    print(f"  {'-'*32}")
+    print(f"  {'Average':<22} {avg_rmse:>10.3f}")
+    print(sep)
+    status = 'BEATS PAPER' if beats else 'does not beat paper'
+    print(f"  Paper best ({paper_ref}): {paper_b:.3f} m")
+    print(f"  Our result ({model_name}): {avg_rmse:.3f} m")
+    print(f"  Gain: {gain_pct:+.2f}%  {status}")
+    print(f"{sep}\n")
+
+    result = dict(
+        model_name=model_name, avg_rmse=avg_rmse, avg_rmse_m=avg_rmse,
+        test_rmse_m=avg_rmse,
+        per_trajectory=traj_results, gain_pct=gain_pct,
+        beats_paper=beats, paper_ref=paper_ref, paper_best=paper_b,
+        gps_fusion_mode=gps_fusion_mode,
+        eval_gps_anchor_alpha=eval_gps_anchor_alpha,
+    )
+    if metadata is not None:
+        result['metadata'] = metadata
+
+    if out_json:
+        os.makedirs(os.path.dirname(out_json) or '.', exist_ok=True)
+        with open(out_json, 'w') as f:
+            json.dump(result, f, indent=2)
+        print(f"  Results saved to {out_json}")
+
+    return result

@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+data/*.pt
+
+*.log
+
+evaluation_results/*
+!evaluation_results/result.json
+!evaluation_results/table2_eval.json
