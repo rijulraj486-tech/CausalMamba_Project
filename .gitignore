@@ -11,3 +11,7 @@ data/*.pt
 evaluation_results/*
 !evaluation_results/result.json
 !evaluation_results/table2_eval.json
+
+*.backup
+*.backup2
+*.pre_publish_backup
