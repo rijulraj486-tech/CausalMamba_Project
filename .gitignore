@@ -14,6 +14,8 @@ evaluation_results/*
 !evaluation_results/D50_2_8/**
 !evaluation_results/D50_DD/
 !evaluation_results/D50_DD/**
+!evaluation_results/D100_DD/
+!evaluation_results/D100_DD/**
 !evaluation_results/D100_2_4/
 !evaluation_results/D100_2_4/**
 !evaluation_results/D100_2_8/

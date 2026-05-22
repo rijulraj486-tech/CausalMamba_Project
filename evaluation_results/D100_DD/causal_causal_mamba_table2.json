@@ -1,0 +1,48 @@
+{
+  "model_name": "Causal-Mamba",
+  "avg_rmse": 7.719855308532715,
+  "avg_rmse_m": 7.719855308532715,
+  "test_rmse_m": 7.719855308532715,
+  "per_trajectory": {
+    "2013-04-05": 6.27,
+    "2012-11-16": 5.998,
+    "2012-11-04": 10.892
+  },
+  "gain_pct": 3.622280792350624,
+  "beats_paper": true,
+  "paper_ref": "KalmanNet",
+  "paper_best": 8.01,
+  "gps_fusion_mode": "fixed",
+  "eval_gps_anchor_alpha": 0.03,
+  "metadata": {
+    "best_checkpoint": "../evaluation_results/D100_DD/causal_causal_mamba_d96_single_D100_k100_w100_best.pt",
+    "checkpoint_size_bytes": 2023482,
+    "checkpoint_mtime": 1779452586.5892532,
+    "checkpoint_sha256": "3fcdbc938b11753faa244e43e19ef606dfbb4fa1c794dd5e07ecd67df1dc4344",
+    "config": {
+      "model": "causal_mamba",
+      "data_path": "../data/nclt_1hz.pt",
+      "d_model": 96,
+      "d_state": 16,
+      "n_layers": 2,
+      "batch_size": 22,
+      "seed": 42,
+      "num_workers": 4,
+      "D": 100,
+      "k": 100,
+      "w": 100,
+      "gps_dropout": 0.3,
+      "lr": 2e-05,
+      "epochs": 30,
+      "mamba_context": 32,
+      "gps_anchor_alpha": 0.03,
+      "eval_gps_anchor_alpha": 0.03,
+      "gps_fusion_mode": "fixed",
+      "gps_filter": "none",
+      "gps_filter_window": 5,
+      "gps_confidence_prior": 0.1,
+      "gps_confidence_reg": 0.0,
+      "train_samples_per_traj": 64
+    }
+  }
+}
