@@ -38,3 +38,10 @@ evaluation_results/*
 # Exact KalmanNet reproduction artifacts
 exact_kalmannet_reproduction/code/KalmanNet4SensorFusion-main/data/NCLT/processed/*.pt
 exact_kalmannet_reproduction/code/KalmanNet4SensorFusion-main/nclt_predict.py
+
+# SlimMamba experiment outputs
+slimmamba_experiment/checkpoints/*
+slimmamba_experiment/logs/*
+slimmamba_experiment/results/*
+!slimmamba_experiment/results/*.json
+!slimmamba_experiment/results/*.png
