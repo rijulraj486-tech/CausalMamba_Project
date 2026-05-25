@@ -1,0 +1,59 @@
+import torch
+import torch.nn as nn
+
+
+class HeteroscedasticHuberLoss(nn.Module):
+    """
+    Robust heteroscedastic loss over the six navigation state dimensions.
+    Position dimensions are up-weighted because RMSE is measured on px/py.
+    """
+
+    def __init__(self, pos_weight=2.0, delta_scale=1.0):
+        super().__init__()
+        self.pos_weight = float(pos_weight)
+        self.delta_scale = float(delta_scale)
+
+    def forward(self, pred_states, target_states, delta_logvar):
+        residual = pred_states - target_states
+        logvar = delta_logvar.clamp(min=-10.0, max=10.0)
+        sigma2 = torch.exp(logvar).clamp(min=1e-4, max=1e4)
+        z2 = residual.square() / (sigma2 * self.delta_scale)
+        huber = z2 / (1.0 + z2)
+        per_dim = huber + 0.5 * logvar
+
+        weights = torch.ones(6, device=pred_states.device, dtype=pred_states.dtype)
+        weights[0] = self.pos_weight
+        weights[1] = self.pos_weight
+        return (per_dim * weights).mean()
+
+
+class MultiScaleLoss(nn.Module):
+    """
+    Curriculum:
+      epoch 1-10: first T/4
+      epoch 11-25: first T/2
+      epoch 26+: full window
+    """
+
+    def __init__(self, pos_weight=2.0):
+        super().__init__()
+        self.base_loss = HeteroscedasticHuberLoss(pos_weight=pos_weight)
+
+    def forward(self, pred, target, logvar, epoch, t_start=0, total_steps=None):
+        steps = pred.shape[1]
+        scale_steps = int(total_steps or steps)
+        if epoch <= 10:
+            active_end = max(scale_steps // 4, 1)
+        elif epoch <= 25:
+            active_end = max(scale_steps // 2, 1)
+        else:
+            active_end = scale_steps
+
+        local_end = max(min(active_end - int(t_start), steps), 0)
+        if local_end == 0:
+            return None
+        return self.base_loss(
+            pred[:, :local_end],
+            target[:, :local_end],
+            logvar[:, :local_end],
+        )
